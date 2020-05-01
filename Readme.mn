@@ -1,0 +1,132 @@
+1.	Установка и настройка программного обеспечения.
+
+Выполнение тестового задания проводится на VirtualBox и установленной на ней Хubuntu-18.04.
+
+a) Influxdb.
+
+Для установки influxdb проходим на сайт:
+
+https://docs.influxdata.com/enterprise_influxdb/v1.8/introduction/installation_guidelines/
+
+Для установки выполним команды:
+
+wget -qO- https://repos.influxdata.com/influxdb.key | sudo apt-key add -
+source /etc/lsb-release
+
+echo "deb https://repos.influxdata.com/${DISTRIB_ID,,} ${DISTRIB_CODENAME} stable" | sudo tee 
+/etc/apt/sources.list.d/influxdb.list
+
+А далее обновим репозиторий и установим базу данных:
+
+sudo apt-get update && sudo apt-get install influxdb
+
+sudo service influxdb start
+
+	После установки базы данных создам нового пользователя (не администратора):
+
+CREATE USER telegraf WITH PASSWORD 'test1'
+
+	И создам новую базу данных:
+
+> CREATE DATABASE grafana
+
+
+
+
+b) Telegraf.
+
+	Для установки необходимо выполнить:
+
+wget -qO- https://repos.influxdata.com/influxdb.key | sudo apt-key add -
+source /etc/lsb-release
+
+echo "deb https://repos.influxdata.com/${DISTRIB_ID,,} ${DISTRIB_CODENAME} stable" | sudo tee 
+/etc/apt/sources.list.d/influxdb.list
+
+	А после обновить репозиторий и установить Telegraf:
+
+sudo apt-get update && sudo apt-get install telegraf
+sudo service telegraf start
+
+	Далее надо сгенерировать конфигурационный файл:
+
+sudo telegraf -sample-config telegraf.conf --input-filter procstat --output-filter influxdb > telegraf.conf
+
+Команда означает следующее: ув. телеграф, будь добр - создай нам 
+конфигурационный файл telegraf.conf, в котором задействован плагин ввода 
+данных procstat, вывода данных - influxdb.
+
+	Далее необходимо отредактировать полученный telegraf.conf:
+-OUTPUTS (настроить канал отправки полученных данных);
+-PLUGINS (настроить плагин procstat для сбора метрик );
+
+	После этого можно запускать Telegraf:
+
+ sudo service telegraf start.
+
+
+c) Grafana
+
+ Почти готово - осталось установить Grafana:
+
+sudo apt-get install -y apt-transport-https
+sudo apt-get install -y software-properties-common wget
+wget -q -O - https://packages.grafana.com/gpg.key | sudo apt-key add -
+
+# Alternatively you can add the beta repository, see in the table above
+sudo add-apt-repository "deb https://packages.grafana.com/oss/deb stable main"
+
+sudo apt-get update
+sudo apt-get install grafana
+
+
+2. Настроить Telegraf  для сбора метрик с Grafana (любых, с помощью которых можно было бы судить о ее работоспособности).
+
+	Тут необходимо правильно настроить telegraf.conf. Для получения метрик с Grafana я использую Procstat Input Plugin.
+Я выбрал данный плагин, потому что получаю lостаточное количество метрик (Pid,VMS,RSS,Swap,CPU Usage,CPU Time User,Process Name) для подтверждения работы Grafana. 
+
+[[inputs.procstat]]
+  
+  #  Systemd unit name
+     systemd_unit = "grafana-server.service".
+
+	
+
+	Так же необходимо настроить конфигурацию для сохранения получаемых метрик в базу данных.
+
+##################################################
+#                            OUTPUT PLUGINS                                   #
+##################################################
+
+
+   urls = ["http://localhost:8086"]
+   database = "grafana"
+   username = "telegraf"
+   password = "test1".
+
+	И проверю созданный конфиг и сохраню полученный лог:
+
+telegraf -config telegraf.conf -test &> /home/test/ telegraf.log .
+
+3. Подключить Grafana к  InfluxDB, создать дашборд (Grafana) и вывести  на него получаемые метрики.
+
+	По умолчанию grafana запустится на порту 3000. Идем браузером на http://localhost:3000/login.
+
+	Авторизуемся, используя стандартные логин и пароль: admin / admin.
+
+	В интерфесе первым делом настраиваем источник данных (datasources - add datasource):
+
+NAME : InfluxDB-grafana
+URL : http://localhost:8086
+Database : Grafana
+User : telegraf
+Password : test1
+
+	Теперь сохраняю и тестирую введенные данные.
+
+	После можно создавать дашборд. Дашборд будет называться Grafana. Для отображения метрик я использую: 
+- Process "Top", который отобразит все данные получаемые метрики;
+- Gauge, который будет отображать потребление ресурсов процессора используемых для Grafana;
+- Graph, отображающий затраченное процессором время для выполнения задачи.
+
+	Создав дашборд, я его экспортирую в json-формате и в дальнейшем смогу загрузить на другом хосте. Это широко используется для создания ansible-скриптов.
